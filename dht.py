@@ -9,9 +9,14 @@ class Node:
 
     # Update the finger table of this node when necessary
     def updateFingerTable(self, dht, k):
+        overhead = 0
         del self.fingerTable[1:]
         for i in range(1, k):
-            self.fingerTable.append(dht.findNode(dht._startNode, self.ID + 2 ** i))
+            a, numJumps = dht.findNode(dht._startNode, self.ID + 2 ** i)
+            self.fingerTable.append(a)
+            overhead += numJumps
+        
+        return overhead
 
         
 class DHT:
@@ -54,11 +59,9 @@ class DHT:
         numJumps = 0
         while True:
             if curr.ID == hashId:
-                print("number of jumps: ", numJumps)
-                return curr
+                return curr, numJumps
             if self.distance(curr.ID, hashId) <= self.distance(curr.fingerTable[0].ID, hashId):
-                print("number of jumps: ", numJumps)
-                return curr.fingerTable[0]
+                return curr.fingerTable[0], numJumps
             tabSize = len(curr.fingerTable)
             i = 0;
             nextNode = curr.fingerTable[-1]
@@ -69,30 +72,43 @@ class DHT:
             curr = nextNode
             numJumps += 1
             
+   
+            
+    #Forward a message between to IDs
+    def packet_forward(self, n1, n2):
+        if self._startNode == None:
+            return 0
+        
+        ##finding the distance to closest node to n2 from n1
+        origNode, nj = self.findNode(self._startNode, n1)
+        nodeClosest, numJumps = self.findNode(origNode, n2)
+        return numJumps
+            
 
     # Look up a key in the DHT
     def lookup(self, start, key):
-        nodeForKey = self.findNode(start, key)
+        nodeForKey, numJumps = self.findNode(start, key)
         if key in nodeForKey.data:
-            # print("The key is in node: ", nodeForKey.ID)
             return nodeForKey.data[key]
         return None
 
     # Store a key-value pair in the DHT
     def store(self, start, key, value):
-        nodeForKey = self.findNode(start, key)
+        nodeForKey, numJumps = self.findNode(start, key)
         nodeForKey.data[key] = value
-
+    
+    
+        
     # When new node joins the system
     def join(self, newNode):
         # Find the node before which the new node should be inserted
-        origNode = self.findNode(self._startNode, newNode.ID)
+        overhead = 0
+        origNode, numJumps = self.findNode(self._startNode, newNode.ID)
 
-        # print(origNode.ID, "  ", newNode.ID)
+        
         # If there is a node with the same id, decline the join request for now
         if origNode.ID == newNode.ID:
-            print("There is already a node with the same id!")
-            return
+            return 0
         
         # Copy the key-value pairs that will belong to the new node after
         # the node is inserted in the system
@@ -104,18 +120,26 @@ class DHT:
         # Update the prev and next pointers
         prevNode = origNode.prev
         newNode.fingerTable[0] = origNode
+        overhead += 1
         newNode.prev = prevNode
+        overhead += 1
         origNode.prev = newNode
+        overhead += 1
         prevNode.fingerTable[0] = newNode
+        overhead += 1
     
         # Set up finger table of the new node
-        newNode.updateFingerTable(self, self._k)
+        update_overhead = newNode.updateFingerTable(self, self._k)
+        overhead += update_overhead
 
         # Delete keys that have been moved to new node
         for key in list(origNode.data.keys()):
             hashId = self.getHashId(key)
             if self.distance(hashId, newNode.ID) < self.distance(hashId, origNode.ID):
                 del origNode.data[key]
+                
+        #return numJumps
+        return overhead
                 
     
     def leave(self, node):
